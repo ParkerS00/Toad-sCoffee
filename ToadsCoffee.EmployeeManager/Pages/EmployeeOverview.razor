@@ -2,6 +2,8 @@
 @page "/employees/list/{currentPage:int}"
 @inject IDbContextFactory<EmployeeManagerDbContext> ContextFactory;
 @inject NavigationManager NavigationManager
+@inject StateContainer StateContainer
+@inject IJSRuntime JS
 
 <PageTitle>Employees</PageTitle>
 
@@ -24,7 +26,7 @@ else
             </li>
         }
         <li class="page-item @(CurrentPage == TotalPages ? "disabled" : "")">
-            <a class="page-link" href="/employees/list/@(CurrentPage 1 1)">Next</a>
+            <a class="page-link" href="/employees/list/@(CurrentPage + 1)">Next</a>
         </li>
     </ul>
 
@@ -35,6 +37,7 @@ else
                 <th>Lastname</th>
                 <th>Is Developer</th>
                 <th>Department</th>
+                <th>#</th>
             </tr>
         </thead>
         <tbody>
@@ -45,12 +48,22 @@ else
                     <td>@employee.LastName</td>
                     <td>@employee.IsDeveloper</td>
                     <td>@employee.Department?.Name</td>
+                    <td class="btn-group-sm">
+                        <a href="/employees/edit/@employee.Id"
+                           class="btn btn-outline-primary">
+                            Edit
+                        </a>
+                        <button class="btn btn-outline-danger"
+                        @onclick="() => HandleDelete(employee)">
+                            Delete
+                        </button>
+                    </td>
                 </tr>
             }
         </tbody>
     </table>
 
-   
+
 }
 
 @code {
@@ -65,7 +78,12 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        if(CurrentPage is null or < 1)
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        if (CurrentPage is null or < 1)
         {
             NavigationManager.NavigateTo("/employees/list/1");
             return;
@@ -78,11 +96,13 @@ else
             ? 1
             : (int)Math.Ceiling((double)employeeCount / ItemsPerPage);
 
-        if(CurrentPage > TotalPages)
+        if (CurrentPage > TotalPages)
         {
             NavigationManager.NavigateTo($"/employees/list/{TotalPages}");
             return;
         }
+
+        StateContainer.EmployeeOverviewPage = CurrentPage.Value;
 
         var itemsToSkip = (CurrentPage.Value - 1) * ItemsPerPage;
 
@@ -92,5 +112,28 @@ else
         .Skip(itemsToSkip)
         .Take(ItemsPerPage)
         .ToArrayAsync();
+    }
+
+    private async Task HandleDelete(Employee employee)
+    {
+        var isOk = await JS.InvokeAsync<bool>("confirm",
+            $"Delete employee {employee.FirstName} {employee.LastName}?");
+
+        if(isOk)
+        {
+            try
+            {
+                using var context = ContextFactory.CreateDbContext();
+                context.Employees.Remove(employee);
+                await context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // If we get this exception, the employee was deleted or modified.
+            }
+
+            await LoadData();
+        }
+        
     }
 }
